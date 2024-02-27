@@ -100,7 +100,7 @@ class Model(nn.Module):
 
         # Init weights, biases
         initialize_weights(self)
-        self.info()
+        self.info(img_size=imgsz)
         logger.info('')
 
     def forward(self, x):

@@ -104,30 +104,63 @@ class Transformer(nn.Module):
         return self.norm(x)
 
 
+class SWA(nn.Module):
+    def __init__(self, size, dim):
+        super().__init__()
+        self.conv = Conv(dim, 2, 1, act=False, bn=False)
+        
+        self.ww = nn.Sequential(
+            Conv(2, 1, (size, 5), p=(0,2), act=False, bn=False),
+            Rearrange('b 1 1 s -> b s'),
+            nn.Linear(size, size),
+            nn.Sigmoid()
+        )
+        
+        self.hw = nn.Sequential(
+            Conv(2, 1, (5, size), p=(2,0), act=False, bn=False),
+            Rearrange('b 1 s 1 -> b s'),
+            nn.Linear(size, size),
+            nn.Sigmoid()
+        )
+    
+    def forward(self, x):
+        x = self.conv(x)
+        
+        ww = self.ww(x).unsqueeze(1)
+        hw = self.hw(x).unsqueeze(-1)
+
+        return torch.cat([torch.mm(hw[i],ww[i]).unsqueeze(0) for i in range(x.shape[0])])
+
+
 class WTA(nn.Module):
-    def __init__(self, c, image_size, patch_size, h, hd):
+    def __init__(self, c, image_size, patch_size, h, hd, swa=True):
         super(WTA, self).__init__()
         
         assert image_size % patch_size == 0, 'Image dimensions must be divisible by the patch size.'
 
+        self.enswa=swa
         self.c = c
         dim = 4 * self.c
-        num_patches = (image_size // patch_size) ** 2
+        self.lenth = image_size // patch_size
+        num_patches = self.lenth ** 2
         patch_dim = dim * patch_size * patch_size
 
         self.to_patch_embedding = nn.Sequential(
-            Rearrange('b c (h p1) (w p2) -> b (h w) (p1 p2 c)', p1 = patch_size, p2 = patch_size),
+            Rearrange('b c (h p1) (w p2) -> b (h w) (p1 p2 c)', p1=patch_size, p2=patch_size),
             nn.LayerNorm(patch_dim),
             nn.Linear(patch_dim, dim),
             nn.LayerNorm(dim),
         )
 
-        self.pos_embedding = nn.Parameter(torch.randn(1, num_patches, dim))
-
         self.transformer = nn.Sequential(
             Transformer(dim, h, hd, 4*dim),
             Transformer(dim, 1, dim, 4*dim),
         )
+
+        self.swa = nn.Sequential(
+            SWA(self.lenth, dim),
+            Rearrange('b h w -> b (h w) 1', h=self.lenth)
+        ) if self.enswa else nn.Identity()
         
         self.attention = nn.Sequential(
             nn.Linear(dim, dim),
@@ -141,12 +174,12 @@ class WTA(nn.Module):
         
         ti = self.to_patch_embedding(y)
 
-        ti += self.pos_embedding
-
         ti = self.transformer(ti)
+
+        sw = self.swa(rearrange(ti, 'b (h w) c -> b c h w', h = self.lenth).contiguous()) if self.enswa else torch.ones((ti.shape), device=ti.device, dtype=ti.dtype)
     
-        w = self.attention(ti.mean(dim = 1))
-        y *= w.view(y.shape[0], y.shape[1], 1, 1)
+        w = self.attention((ti * sw).mean(dim=1))
+        y *= (w + 1).view(y.shape[0], y.shape[1], 1, 1)
         y = y.float()
         
         return ptwt.waverec2([y[:,:self.c], (y[:,self.c:self.c*2], y[:,self.c*2:self.c*3], y[:,self.c*3:])], 'haar').to(dtype)

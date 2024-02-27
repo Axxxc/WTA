@@ -1,0 +1,108 @@
+nc: 10  # number of classes
+
+anchors:
+  - [10,13, 16,30, 33,23]  # P3/8
+  - [30,61, 62,45, 59,119]  # P4/16
+  - [116,90, 156,198, 373,326]  # P5/32
+
+backbone:
+  [[-1, 1, WTA, [288, 4, 4, 3]],
+   [-1, 1, Conv, [32, 3, 2, None, 1, nn.ReLU()]],  # 1-P1/2  
+  
+   [-1, 1, Conv, [64, 3, 2, None, 1, nn.ReLU()]],  # 2-P2/4
+   
+   [-1, 1, Conv, [32, 1, 1, None, 1, nn.ReLU()]],
+   [-2, 1, Conv, [32, 1, 1, None, 1, nn.ReLU()]],
+   [-1, 1, Conv, [32, 3, 1, None, 1, nn.ReLU()]],
+   [-1, 1, Conv, [32, 3, 1, None, 1, nn.ReLU()]],
+   [[-1, -2, -3, -4], 1, Concat, [1]],
+   [-1, 1, Conv, [64, 1, 1, None, 1, nn.ReLU()]],  # 8
+   
+   [-1, 1, MP, []],  # 9-P3/8
+   [-1, 1, Conv, [64, 1, 1, None, 1, nn.ReLU()]],
+   [-2, 1, Conv, [64, 1, 1, None, 1, nn.ReLU()]],
+   [-1, 1, Conv, [64, 3, 1, None, 1, nn.ReLU()]],
+   [-1, 1, Conv, [64, 3, 1, None, 1, nn.ReLU()]],
+   [[-1, -2, -3, -4], 1, Concat, [1]],
+   [-1, 1, Conv, [128, 1, 1, None, 1, nn.ReLU()]],  # 15
+   
+   [-1, 1, MP, []],  # 16-P4/16
+   [-1, 1, Conv, [128, 1, 1, None, 1, nn.ReLU()]],
+   [-2, 1, Conv, [128, 1, 1, None, 1, nn.ReLU()]],
+   [-1, 1, Conv, [128, 3, 1, None, 1, nn.ReLU()]],
+   [-1, 1, Conv, [128, 3, 1, None, 1, nn.ReLU()]],
+   [[-1, -2, -3, -4], 1, Concat, [1]],
+   [-1, 1, Conv, [256, 1, 1, None, 1, nn.ReLU()]],  # 22
+   
+   [-1, 1, MP, []],  # 23-P5/32
+   [-1, 1, Conv, [256, 1, 1, None, 1, nn.ReLU()]],
+   [-2, 1, Conv, [256, 1, 1, None, 1, nn.ReLU()]],
+   [-1, 1, Conv, [256, 3, 1, None, 1, nn.ReLU()]],
+   [-1, 1, Conv, [256, 3, 1, None, 1, nn.ReLU()]],
+   [[-1, -2, -3, -4], 1, Concat, [1]],
+   [-1, 1, Conv, [512, 1, 1, None, 1, nn.ReLU()]],  # 29
+  ]
+
+neck:
+  [[-1, 1, Conv, [256, 1, 1, None, 1, nn.ReLU()]],
+   [-2, 1, Conv, [256, 1, 1, None, 1, nn.ReLU()]],
+   [-1, 1, SP, [5]],
+   [-2, 1, SP, [9]],
+   [-3, 1, SP, [13]],
+   [[-1, -2, -3, -4], 1, Concat, [1]],
+   [-1, 1, Conv, [256, 1, 1, None, 1, nn.ReLU()]],
+   [[-1, -7], 1, Concat, [1]],
+   [-1, 1, Conv, [256, 1, 1, None, 1, nn.ReLU()]],  # 38
+  
+   [-1, 1, Conv, [128, 1, 1, None, 1, nn.ReLU()]],
+   [-1, 1, nn.Upsample, [None, 2, 'nearest']],
+   [22, 1, Conv, [128, 1, 1, None, 1, nn.ReLU()]], # route backbone P4
+   [[-1, -2], 1, Concat, [1]],
+   
+   [-1, 1, Conv, [64, 1, 1, None, 1, nn.ReLU()]],
+   [-2, 1, Conv, [64, 1, 1, None, 1, nn.ReLU()]],
+   [-1, 1, Conv, [64, 3, 1, None, 1, nn.ReLU()]],
+   [-1, 1, Conv, [64, 3, 1, None, 1, nn.ReLU()]],
+   [[-1, -2, -3, -4], 1, Concat, [1]],
+   [-1, 1, Conv, [128, 1, 1, None, 1, nn.ReLU()]],  # 48
+  
+   [-1, 1, Conv, [64, 1, 1, None, 1, nn.ReLU()]],
+   [-1, 1, nn.Upsample, [None, 2, 'nearest']],
+   [15, 1, Conv, [64, 1, 1, None, 1, nn.ReLU()]], # route backbone P3
+   [[-1, -2], 1, Concat, [1]],
+   
+   [-1, 1, Conv, [32, 1, 1, None, 1, nn.ReLU()]],
+   [-2, 1, Conv, [32, 1, 1, None, 1, nn.ReLU()]],
+   [-1, 1, Conv, [32, 3, 1, None, 1, nn.ReLU()]],
+   [-1, 1, Conv, [32, 3, 1, None, 1, nn.ReLU()]],
+   [[-1, -2, -3, -4], 1, Concat, [1]],
+   [-1, 1, Conv, [64, 1, 1, None, 1, nn.ReLU()]],  # 58
+   
+   [-1, 1, Conv, [128, 3, 2, None, 1, nn.ReLU()]],
+   [[-1, 47], 1, Concat, [1]],
+   
+   [-1, 1, Conv, [64, 1, 1, None, 1, nn.ReLU()]],
+   [-2, 1, Conv, [64, 1, 1, None, 1, nn.ReLU()]],
+   [-1, 1, Conv, [64, 3, 1, None, 1, nn.ReLU()]],
+   [-1, 1, Conv, [64, 3, 1, None, 1, nn.ReLU()]],
+   [[-1, -2, -3, -4], 1, Concat, [1]],
+   [-1, 1, Conv, [128, 1, 1, None, 1, nn.ReLU()]],  # 66
+   
+   [-1, 1, Conv, [256, 3, 2, None, 1, nn.ReLU()]],
+   [[-1, 37], 1, Concat, [1]],
+   
+   [-1, 1, Conv, [128, 1, 1, None, 1, nn.ReLU()]],
+   [-2, 1, Conv, [128, 1, 1, None, 1, nn.ReLU()]],
+   [-1, 1, Conv, [128, 3, 1, None, 1, nn.ReLU()]],
+   [-1, 1, Conv, [128, 3, 1, None, 1, nn.ReLU()]],
+   [[-1, -2, -3, -4], 1, Concat, [1]],
+   [-1, 1, Conv, [256, 1, 1, None, 1, nn.ReLU()]],  # 74
+  ]
+
+head:
+  [[58, 1, Conv, [128, 3, 1, None, 1, nn.ReLU()]],
+   [66, 1, Conv, [256, 3, 1, None, 1, nn.ReLU()]],
+   [74, 1, Conv, [512, 3, 1, None, 1, nn.ReLU()]],
+
+   [[75,76,77], 1, IDetect, [nc, anchors]],   # Detect(P3, P4, P5)
+  ]
