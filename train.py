@@ -281,7 +281,7 @@ def train(hyp, opt, device):
         if ma5 > best_map:
             best_map = ma5
         
-        w = [0.0, 0.0, 0.1, 0.9]  # weights for [P, R, mAP@0.5, mAP@0.5:0.95]
+        w = [0.0, 0.0, 0.4, 0.6]  # weights for [P, R, mAP@0.5, mAP@0.5:0.95]
         fi = (np.array(results).reshape(1, -1)[:, :4] * w).sum(1)  # weighted combination of [P, R, mAP@.5, mAP@.5-.95]
         if fi > best_fitness:
             best_fitness = fi
