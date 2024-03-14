@@ -133,34 +133,29 @@ class SWA(nn.Module):
 
 
 class WTA(nn.Module):
-    def __init__(self, c, image_size, patch_size, h, hd, swa=True):
+    def __init__(self, c, image_size, patch_size, h, hd):
         super(WTA, self).__init__()
         
         assert image_size % patch_size == 0, 'Image dimensions must be divisible by the patch size.'
 
-        self.enswa=swa
         self.c = c
         dim = 4 * self.c
-        self.lenth = image_size // patch_size
-        num_patches = self.lenth ** 2
+        num_patches = (image_size // patch_size) ** 2
         patch_dim = dim * patch_size * patch_size
 
         self.to_patch_embedding = nn.Sequential(
-            Rearrange('b c (h p1) (w p2) -> b (h w) (p1 p2 c)', p1=patch_size, p2=patch_size),
+            Rearrange('b c (h p1) (w p2) -> b (h w) (p1 p2 c)', p1 = patch_size, p2 = patch_size),
             nn.LayerNorm(patch_dim),
             nn.Linear(patch_dim, dim),
             nn.LayerNorm(dim),
         )
 
+        self.pos_embedding = nn.Parameter(torch.randn(1, num_patches, dim))
+
         self.transformer = nn.Sequential(
             Transformer(dim, h, hd, 4*dim),
             Transformer(dim, 1, dim, 4*dim),
         )
-
-        self.swa = nn.Sequential(
-            SWA(self.lenth, dim),
-            Rearrange('b h w -> b (h w) 1', h=self.lenth)
-        ) if self.enswa else nn.Identity()
         
         self.attention = nn.Sequential(
             nn.Linear(dim, dim),
@@ -174,12 +169,12 @@ class WTA(nn.Module):
         
         ti = self.to_patch_embedding(y)
 
-        ti = self.transformer(ti)
+        ti += self.pos_embedding
 
-        sw = self.swa(rearrange(ti, 'b (h w) c -> b c h w', h = self.lenth).contiguous()) if self.enswa else torch.ones((ti.shape), device=ti.device, dtype=ti.dtype)
+        ti = self.transformer(ti)
     
-        w = self.attention((ti * sw).mean(dim=1))
-        y *= (w + 1).view(y.shape[0], y.shape[1], 1, 1)
+        w = self.attention(ti.mean(dim = 1))
+        y *= w.view(y.shape[0], y.shape[1], 1, 1)
         y = y.float()
         
         return ptwt.waverec2([y[:,:self.c], (y[:,self.c:self.c*2], y[:,self.c*2:self.c*3], y[:,self.c*3:])], 'haar').to(dtype)

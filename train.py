@@ -62,6 +62,7 @@ def train(hyp, opt, device):
         data_dict = yaml.load(f, Loader=yaml.SafeLoader)  # data dict
 
     nc = int(data_dict['nc'])  # number of classes
+    anchors = data_dict['anchors']
     names = data_dict['names']  # class names
     assert len(names) == nc, '%g names found for nc=%g dataset in %s' % (len(names), nc, opt.data)  # check
 
@@ -76,7 +77,7 @@ def train(hyp, opt, device):
         model.load_state_dict(state_dict, strict=False)  # load
         logger.info('Transferred %g/%g items from %s' % (len(state_dict), len(model.state_dict()), weight))  # report
     else:
-        model = Model(opt.data, ch=3, nc=nc, anchors=hyp.get('anchors'), imgsz=opt.img_size).to(device)  # create
+        model = Model(opt.cfg, ch=3, nc=nc, anchors=hyp.get('anchors',anchors), imgsz=opt.img_size).to(device)  # create
     
     check_dataset(data_dict)  # check
     train_path = data_dict['train']

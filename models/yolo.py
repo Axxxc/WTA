@@ -64,25 +64,21 @@ class IDetect(nn.Module):
 
 
 class Model(nn.Module):
-    def __init__(self, data, ch=3, nc=None, anchors=None, imgsz=640):  # model, input channels, number of classes
+    def __init__(self, cfg, ch=3, nc=None, anchors=None, imgsz=640):  # model, input channels, number of classes
         super(Model, self).__init__()
         self.traced = False
-        if isinstance(data, dict):
-            self.yaml = data  # model dict
+        if isinstance(cfg, dict):
+            self.yaml = cfg  # model dict
         else:  # is *.yaml
             import yaml  # for torch hub
-            self.yaml_file = Path(data).name
-            with open(data) as f:
+            self.yaml_file = Path(cfg).name
+            with open(cfg) as f:
                 self.yaml = yaml.load(f, Loader=yaml.SafeLoader)  # model dict
 
         # Define model
         ch = self.yaml['ch'] = self.yaml.get('ch', ch)  # input channels
-        if nc and nc != self.yaml['nc']:
-            logger.info(f"Overriding model.yaml nc={self.yaml['nc']} with nc={nc}")
-            self.yaml['nc'] = nc  # override yaml value
-        if anchors:
-            logger.info(f'Overriding model.yaml anchors with anchors={anchors}')
-            self.yaml['anchors'] = round(anchors)  # override yaml value
+        self.yaml['nc'] = nc  # override yaml value
+        self.yaml['anchors'] = round(anchors)  # override yaml value
         self.model, self.save = parse_model(deepcopy(self.yaml), ch=[ch])  # model, savelist
         self.names = [str(i) for i in range(self.yaml['nc'])]  # default names
         # print([x.shape for x in self.forward(torch.zeros(1, ch, 64, 64))])
