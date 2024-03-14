@@ -76,7 +76,7 @@ def train(hyp, opt, device):
         model.load_state_dict(state_dict, strict=False)  # load
         logger.info('Transferred %g/%g items from %s' % (len(state_dict), len(model.state_dict()), weight))  # report
     else:
-        model = Model(opt.cfg, ch=3, nc=nc, anchors=hyp.get('anchors'), imgsz=opt.img_size).to(device)  # create
+        model = Model(opt.data, ch=3, nc=nc, anchors=hyp.get('anchors'), imgsz=opt.img_size).to(device)  # create
     
     check_dataset(data_dict)  # check
     train_path = data_dict['train']

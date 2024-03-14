@@ -64,15 +64,15 @@ class IDetect(nn.Module):
 
 
 class Model(nn.Module):
-    def __init__(self, cfg, ch=3, nc=None, anchors=None, imgsz=640):  # model, input channels, number of classes
+    def __init__(self, data, ch=3, nc=None, anchors=None, imgsz=640):  # model, input channels, number of classes
         super(Model, self).__init__()
         self.traced = False
-        if isinstance(cfg, dict):
-            self.yaml = cfg  # model dict
+        if isinstance(data, dict):
+            self.yaml = data  # model dict
         else:  # is *.yaml
             import yaml  # for torch hub
-            self.yaml_file = Path(cfg).name
-            with open(cfg) as f:
+            self.yaml_file = Path(data).name
+            with open(data) as f:
                 self.yaml = yaml.load(f, Loader=yaml.SafeLoader)  # model dict
 
         # Define model

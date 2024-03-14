@@ -41,7 +41,7 @@ class Concat(nn.Module):
 
 class Conv(nn.Module):
     # Standard convolution
-    def __init__(self, c1, c2, k=1, s=1, p=None, g=1, act=True, bias=False, bn=True):  # ch_in, ch_out, kernel, stride, padding, groups
+    def __init__(self, c1, c2, k=1, s=1, p=None, g=1, act=None, bias=False, bn=True):  # ch_in, ch_out, kernel, stride, padding, groups
         super(Conv, self).__init__()
         
         self.conv = nn.Conv2d(c1, c2, k, s, autopad(k, p), groups=g, bias=bias)
