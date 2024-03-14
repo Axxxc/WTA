@@ -107,17 +107,17 @@ class Transformer(nn.Module):
 class SWA(nn.Module):
     def __init__(self, size, dim):
         super().__init__()
-        self.conv = Conv(dim, 2, 1, act=False, bn=False)
+        self.conv = Conv(dim, 2, 1, bn=False)
         
         self.ww = nn.Sequential(
-            Conv(2, 1, (size, 5), p=(0,2), act=False, bn=False),
+            Conv(2, 1, (size, 5), p=(0,2), bn=False),
             Rearrange('b 1 1 s -> b s'),
             nn.Linear(size, size),
             nn.Sigmoid()
         )
         
         self.hw = nn.Sequential(
-            Conv(2, 1, (5, size), p=(2,0), act=False, bn=False),
+            Conv(2, 1, (5, size), p=(2,0), bn=False),
             Rearrange('b 1 s 1 -> b s'),
             nn.Linear(size, size),
             nn.Sigmoid()
