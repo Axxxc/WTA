@@ -180,6 +180,41 @@ class WTA(nn.Module):
         return ptwt.waverec2([y[:,:self.c], (y[:,self.c:self.c*2], y[:,self.c*2:self.c*3], y[:,self.c*3:])], 'haar').to(dtype)
 
 
+class EDFA(nn.Module):
+    def __init__(self, c, l):
+        super(EDFA, self).__init__()
+        assert l % 4 == 0, 'the input size of EDFA model should be the multiple of 4'
+        dim = c // 2
+        
+        self.conv = Conv(c, dim, act=nn.ReLU())
+        
+        self.h = nn.Sequential(
+            Rearrange('b c h w -> b w h c'),
+            Conv(l, l//2, act=nn.ReLU()),
+            Rearrange('b w h c -> b h w c'),
+            Conv(l, l//2, act=nn.ReLU()),
+            Rearrange('b h w c -> b c h w'),
+            nn.Upsample(None, 2)
+        )
+        
+        self.q = nn.Sequential(
+            Rearrange('b c h w -> b w h c'),
+            Conv(l, l//4, act=nn.ReLU()),
+            Rearrange('b w h c -> b h w c'),
+            Conv(l, l//4, act=nn.ReLU()),
+            Rearrange('b h w c -> b c h w'),
+            nn.Upsample(None, 4)
+        )
+        
+        self.o = Conv(dim*3, dim, act=nn.ReLU())
+
+    def forward(self, x):
+        x = self.conv(x)
+        out = torch.cat([x, self.h(x), self.q(x)], 1)
+        
+        return self.o(out)
+
+
 class ImplicitA(nn.Module):
     def __init__(self, channel, mean=0., std=.02):
         super(ImplicitA, self).__init__()
