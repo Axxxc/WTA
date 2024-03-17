@@ -230,40 +230,31 @@ class SeModule(nn.Module):
 
 
 class Block(nn.Module):
-    def __init__(self, kernel_size, in_size, expand_size, out_size, act, se, stride):
+    def __init__(self, inp, oup, stride, expand_ratio):
         super(Block, self).__init__()
-        self.stride = stride
+        hidden_dim = round(inp * expand_ratio)
+        self.identity = stride == 1 and inp == oup
 
-        self.conv1 = Conv(in_size, expand_size, act = act)
-        self.conv2 = Conv(expand_size, expand_size, kernel_size, stride, g=expand_size, act = act)
-        self.se = SeModule(expand_size) if se else nn.Identity()
-        self.conv3 = Conv(expand_size, out_size)
-        self.act = act
-
-        self.skip = None
-        if stride == 1 and in_size != out_size:
-            self.skip = Conv(in_size, out_size)
-
-        if stride == 2 and in_size != out_size:
-            self.skip = nn.Sequential(
-                Conv(in_size, in_size, 3, 2, g=in_size),
-                Conv(in_size, out_size),
-            )
-
-        if stride == 2 and in_size == out_size:
-            self.skip = Conv(in_size, out_size, 3, 2, g=in_size)
+        if expand_ratio == 1:
+            self.conv = nn.Sequential(
+                # dw
+                Conv(inp, inp, 3, stride, g=inp, act=nn.ReLU6()),
+                # pw-linear
+                Conv(inp, oup, 1, 1))
+        else:
+            self.conv = nn.Sequential(
+                # pw
+                Conv(inp, hidden_dim, 1, 1, act=nn.ReLU6()),
+                # dw
+                Conv(hidden_dim, hidden_dim, 3, stride, g=hidden_dim, act=nn.ReLU6()),
+                # pw-linear
+                Conv(hidden_dim, oup, 1, 1))
 
     def forward(self, x):
-        skip = x
-
-        out = self.conv1(x)
-        out = self.conv2(out)
-        out = self.se(out)
-        out = self.conv3(out)
-        
-        if self.skip is not None:
-            skip = self.skip(skip)
-        return self.act(out + skip)
+        if self.identity:
+            return x + self.conv(x)
+        else:
+            return self.conv(x)
 
 
 class ImplicitA(nn.Module):
