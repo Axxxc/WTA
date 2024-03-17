@@ -14,7 +14,7 @@ from utils.autoanchor import check_anchor_order
 from utils.torch_utils import model_info, initialize_weights
 
 
-class IDetect(nn.Module):
+class Detect(nn.Module):
     stride = None  # strides computed during build
     export = False  # onnx export
     end2end = False
@@ -22,7 +22,7 @@ class IDetect(nn.Module):
     concat = False
 
     def __init__(self, nc=80, anchors=(), ch=()):  # detection layer
-        super(IDetect, self).__init__()
+        super(Detect, self).__init__()
         self.nc = nc  # number of classes
         self.no = nc + 5  # number of outputs per anchor
         self.nl = len(anchors)  # number of detection layers
@@ -32,17 +32,13 @@ class IDetect(nn.Module):
         self.register_buffer('anchors', a)  # shape(nl,na,2)
         self.register_buffer('anchor_grid', a.clone().view(self.nl, 1, -1, 1, 1, 2))  # shape(nl,1,na,1,1,2)
         self.m = nn.ModuleList(Conv(x, self.no * self.na, 1, p=0, act=False, bias=True, bn=False) for x in ch)  # output conv
-        
-        self.ia = nn.ModuleList(ImplicitA(x) for x in ch)
-        self.im = nn.ModuleList(ImplicitM(self.no * self.na) for _ in ch)
 
     def forward(self, x):
         # x = x.copy()  # for profiling
         z = []  # inference output
         self.training |= self.export
         for i in range(self.nl):
-            x[i] = self.m[i](self.ia[i](x[i]))  # conv
-            x[i] = self.im[i](x[i])
+            x[i] = self.m[i](x[i])  # conv
             bs, _, ny, nx = x[i].shape  # x(bs,255,20,20) to x(bs,3,20,20,85)
             x[i] = x[i].view(bs, self.na, self.no, ny, nx).permute(0, 1, 3, 4, 2).contiguous()
 
@@ -85,7 +81,7 @@ class Model(nn.Module):
 
         # Build strides, anchors
         m = self.model[-1]  # Detect()
-        if isinstance(m, IDetect):
+        if isinstance(m, Detect):
             s = imgsz[0] if isinstance(imgsz, list) else imgsz
             m.stride = torch.tensor([s / x.shape[-2] for x in self.forward(torch.zeros(1, ch, s, s))])  # forward
             check_anchor_order(m)
@@ -114,7 +110,7 @@ class Model(nn.Module):
     def _initialize_biases(self, cf=None):  # initialize biases into Detect(), cf is class frequency
         # https://arxiv.org/abs/1708.02002 section 3.3
         m = self.model[-1]
-        if isinstance(m, IDetect):
+        if isinstance(m, Detect):
             for mi, s in zip(m.m, m.stride):  # from
                 b = mi.conv.bias.view(m.na, -1)  # conv.bias(255) to (3,85)
                 b.data[:, 4] += math.log(8 / (640 / s) ** 2)  # obj (8 objects per 640 image)
@@ -138,9 +134,15 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
             except:
                 pass
         
-        if m in [nn.Conv2d, Conv]:
+        if m in [nn.Conv2d, Conv, C3, SPPF]:
             c1, c2 = ch[f], args[0]
             args = [c1, c2, *args[1:]]
+            
+            if m is C3:
+                args.insert(2, n)  # number of repeats
+                n = 1
+        elif m is Block:
+            c1, c2 = args[1], args[3]
         elif m is nn.BatchNorm2d:
             args = [ch[f]]
         elif m is Concat:
@@ -151,7 +153,7 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
         elif m is EDFA:
             c1, c2 = ch[f], args[0]
             args = [c1, *args[1:]]
-        elif m is IDetect:
+        elif m is Detect:
             args.append([ch[x] for x in f])
             if isinstance(args[1], int):  # number of anchors
                 args[1] = [list(range(args[1] * 2))] * len(f)

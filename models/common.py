@@ -215,6 +215,57 @@ class EDFA(nn.Module):
         return self.o(out)
 
 
+class SeModule(nn.Module):
+    def __init__(self, in_size, reduction=4):
+        super(SeModule, self).__init__()
+        expand_size =  max(in_size // reduction, 8)
+        self.se = nn.Sequential(
+            nn.AdaptiveAvgPool2d(1),
+            Conv(in_size, expand_size, bn=False, act=nn.ReLU()),
+            Conv(expand_size, in_size, bn=False, act=nn.Hardsigmoid())
+        )
+
+    def forward(self, x):
+        return x * self.se(x)
+
+
+class Block(nn.Module):
+    def __init__(self, kernel_size, in_size, expand_size, out_size, act, se, stride):
+        super(Block, self).__init__()
+        self.stride = stride
+
+        self.conv1 = Conv(in_size, expand_size, act = act)
+        self.conv2 = Conv(expand_size, expand_size, kernel_size, stride, g=expand_size, act = act)
+        self.se = SeModule(expand_size) if se else nn.Identity()
+        self.conv3 = Conv(expand_size, out_size)
+        self.act = act
+
+        self.skip = None
+        if stride == 1 and in_size != out_size:
+            self.skip = Conv(in_size, out_size)
+
+        if stride == 2 and in_size != out_size:
+            self.skip = nn.Sequential(
+                Conv(in_size, in_size, 3, 2, g=in_size),
+                Conv(in_size, out_size),
+            )
+
+        if stride == 2 and in_size == out_size:
+            self.skip = Conv(in_size, out_size, 3, 2, g=in_size)
+
+    def forward(self, x):
+        skip = x
+
+        out = self.conv1(x)
+        out = self.conv2(out)
+        out = self.se(out)
+        out = self.conv3(out)
+        
+        if self.skip is not None:
+            skip = self.skip(skip)
+        return self.act(out + skip)
+
+
 class ImplicitA(nn.Module):
     def __init__(self, channel, mean=0., std=.02):
         super(ImplicitA, self).__init__()
@@ -226,6 +277,67 @@ class ImplicitA(nn.Module):
 
     def forward(self, x):
         return self.implicit + x
+
+
+class C3(nn.Module):
+    # CSP Bottleneck with 3 convolutions
+    def __init__(self, c1, c2, n=1, shortcut=True, g=1, e=0.5):
+        """Initializes C3 module with options for channel count, bottleneck repetition, shortcut usage, group
+        convolutions, and expansion.
+        """
+        super().__init__()
+        c_ = int(c2 * e)  # hidden channels
+        self.cv1 = Conv(c1, c_, 1, 1, act=nn.ReLU())
+        self.cv2 = Conv(c1, c_, 1, 1, act=nn.ReLU())
+        self.cv3 = Conv(2 * c_, c2, 1, act=nn.ReLU())  # optional act=FReLU(c2)
+        self.m = nn.Sequential(*(Bottleneck(c_, c_, shortcut, g, e=1.0) for _ in range(n)))
+
+    def forward(self, x):
+        """Performs forward propagation using concatenated outputs from two convolutions and a Bottleneck sequence."""
+        return self.cv3(torch.cat((self.m(self.cv1(x)), self.cv2(x)), 1))
+
+
+class Bottleneck(nn.Module):
+    # Standard bottleneck
+    def __init__(self, c1, c2, shortcut=True, g=1, e=0.5):
+        """Initializes a standard bottleneck layer with optional shortcut and group convolution, supporting channel
+        expansion.
+        """
+        super().__init__()
+        c_ = int(c2 * e)  # hidden channels
+        self.cv1 = Conv(c1, c_, 1, 1, act=nn.ReLU())
+        self.cv2 = Conv(c_, c2, 3, 1, g=g, act=nn.ReLU())
+        self.add = shortcut and c1 == c2
+
+    def forward(self, x):
+        """Processes input through two convolutions, optionally adds shortcut if channel dimensions match; input is a
+        tensor.
+        """
+        return x + self.cv2(self.cv1(x)) if self.add else self.cv2(self.cv1(x))
+
+
+class SPPF(nn.Module):
+    # Spatial Pyramid Pooling - Fast (SPPF) layer for YOLOv5 by Glenn Jocher
+    def __init__(self, c1, c2, k=5):
+        """
+        Initializes YOLOv5 SPPF layer with given channels and kernel size for YOLOv5 model, combining convolution and
+        max pooling.
+
+        Equivalent to SPP(k=(5, 9, 13)).
+        """
+        super().__init__()
+        c_ = c1 // 2  # hidden channels
+        self.cv1 = Conv(c1, c_, 1, 1, act=nn.ReLU())
+        self.cv2 = Conv(c_ * 4, c2, 1, 1, act=nn.ReLU())
+        self.m = nn.MaxPool2d(kernel_size=k, stride=1, padding=k // 2)
+
+    def forward(self, x):
+        """Processes input through a series of convolutions and max pooling operations for feature extraction."""
+        x = self.cv1(x)
+
+        y1 = self.m(x)
+        y2 = self.m(y1)
+        return self.cv2(torch.cat((x, y1, y2, self.m(y2)), 1))
 
 
 class ImplicitM(nn.Module):
