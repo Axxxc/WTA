@@ -164,20 +164,16 @@ class WTA(nn.Module):
     
     def forward(self, x):
         dtype = x.dtype
+        
         a, (b, c, d) = ptwt.wavedec2(x.float(), 'haar', 'zero', 1)
         y = torch.cat((a, b, c, d), 1).to(dtype)
         
-        ti = self.to_patch_embedding(y)
+        ti = self.to_patch_embedding(y) + self.pos_embedding
 
-        ti += self.pos_embedding
-
-        ti = self.transformer(ti)
-    
-        w = self.attention(ti.mean(dim = 1))
-        y *= w.view(y.shape[0], y.shape[1], 1, 1)
-        y = y.float()
+        w = self.attention(self.transformer(ti).mean(dim = 1))
         
-        return ptwt.waverec2([y[:,:self.c], (y[:,self.c:self.c*2], y[:,self.c*2:self.c*3], y[:,self.c*3:])], 'haar').to(dtype)
+        o = (y + y * w.view(y.shape[0], y.shape[1], 1, 1)).float()
+        return ptwt.waverec2([o[:,:self.c], (o[:,self.c:self.c*2], o[:,self.c*2:self.c*3], o[:,self.c*3:])], 'haar').to(dtype)
 
 
 class EDFA(nn.Module):
