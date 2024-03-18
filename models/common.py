@@ -12,24 +12,6 @@ def autopad(k, p=None):  # kernel, padding
     return p
 
 
-class MP(nn.Module):
-    def __init__(self, k=2):
-        super(MP, self).__init__()
-        self.m = nn.MaxPool2d(kernel_size=k, stride=k)
-
-    def forward(self, x):
-        return self.m(x)
-
-
-class SP(nn.Module):
-    def __init__(self, k=3, s=1):
-        super(SP, self).__init__()
-        self.m = nn.MaxPool2d(kernel_size=k, stride=s, padding=k // 2)
-
-    def forward(self, x):
-        return self.m(x)
-
-
 class Concat(nn.Module):
     def __init__(self, dimension=1):
         super(Concat, self).__init__()
@@ -52,6 +34,51 @@ class Conv(nn.Module):
         out = self.conv(x)
         return self.act(self.bn(out))
 
+
+class BNeck(nn.Module):
+    def __init__(self, inp, oup, stride, expand_ratio):
+        super(BNeck, self).__init__()
+        hidden_dim = round(inp * expand_ratio)
+        self.identity = stride == 1 and inp == oup
+
+        if expand_ratio == 1:
+            self.conv = nn.Sequential(
+                # dw
+                Conv(inp, inp, 3, stride, g=inp, act=nn.ReLU6()),
+                # pw-linear
+                Conv(inp, oup, 1, 1))
+        else:
+            self.conv = nn.Sequential(
+                # pw
+                Conv(inp, hidden_dim, 1, 1, act=nn.ReLU6()),
+                # dw
+                Conv(hidden_dim, hidden_dim, 3, stride, g=hidden_dim, act=nn.ReLU6()),
+                # pw-linear
+                Conv(hidden_dim, oup, 1, 1))
+
+    def forward(self, x):
+        if self.identity:
+            return x + self.conv(x)
+        else:
+            return self.conv(x)
+
+
+class C3(nn.Module):
+    # CSP Bottleneck with 3 convolutions
+    def __init__(self, c1, c2, n=1, shortcut=True, g=1, e=0.5):
+        """Initializes C3 module with options for channel count, bottleneck repetition, shortcut usage, group
+        convolutions, and expansion.
+        """
+        super().__init__()
+        c_ = int(c2 * e)  # hidden channels
+        self.cv1 = Conv(c1, c_, 1, 1, act=nn.ReLU())
+        self.cv2 = Conv(c1, c_, 1, 1, act=nn.ReLU())
+        self.cv3 = Conv(2 * c_, c2, 1, act=nn.ReLU())  # optional act=FReLU(c2)
+        self.m = nn.Sequential(*(Bottleneck(c_, c_, shortcut, g, e=1.0) for _ in range(n)))
+
+    def forward(self, x):
+        """Performs forward propagation using concatenated outputs from two convolutions and a Bottleneck sequence."""
+        return self.cv3(torch.cat((self.m(self.cv1(x)), self.cv2(x)), 1))
 
 
 class Attention(nn.Module):
@@ -104,34 +131,6 @@ class Transformer(nn.Module):
         return self.norm(x)
 
 
-class SWA(nn.Module):
-    def __init__(self, size, dim):
-        super().__init__()
-        self.conv = Conv(dim, 2, 1, bn=False)
-        
-        self.ww = nn.Sequential(
-            Conv(2, 1, (size, 5), p=(0,2), bn=False),
-            Rearrange('b 1 1 s -> b s'),
-            nn.Linear(size, size),
-            nn.Sigmoid()
-        )
-        
-        self.hw = nn.Sequential(
-            Conv(2, 1, (5, size), p=(2,0), bn=False),
-            Rearrange('b 1 s 1 -> b s'),
-            nn.Linear(size, size),
-            nn.Sigmoid()
-        )
-    
-    def forward(self, x):
-        x = self.conv(x)
-        
-        ww = self.ww(x).unsqueeze(1)
-        hw = self.hw(x).unsqueeze(-1)
-
-        return torch.cat([torch.mm(hw[i],ww[i]).unsqueeze(0) for i in range(x.shape[0])])
-
-
 class WTA(nn.Module):
     def __init__(self, c, image_size, patch_size, h, hd):
         super(WTA, self).__init__()
@@ -181,158 +180,56 @@ class EDFA(nn.Module):
         super(EDFA, self).__init__()
         assert l % 4 == 0, 'the input size of EDFA model should be the multiple of 4'
         
-        self.conv = Conv(c1, c2, act=nn.ReLU())
+        self.conv1 = Conv(c1, c2, act=nn.ReLU())
+        self.conv2 = Conv(c1, c2, act=nn.ReLU())
         
         self.h = nn.Sequential(
             Rearrange('b c h w -> b w h c'),
             Conv(l, l//2, act=nn.ReLU()),
             Rearrange('b w h c -> b h w c'),
             Conv(l, l//2, act=nn.ReLU()),
-            Rearrange('b h w c -> b c h w'),
-        )
+            Rearrange('b h w c -> b c h w'))
         
         self.q = nn.Sequential(
             Rearrange('b c h w -> b w h c'),
             Conv(l//2, l//4, act=nn.ReLU()),
             Rearrange('b w h c -> b h w c'),
             Conv(l//2, l//4, act=nn.ReLU()),
-            Rearrange('b h w c -> b c h w'),
+            Rearrange('b h w c -> b c h w'))
+        
+        self.o = Conv(c2*4, c2, act=nn.ReLU())
+
+    def forward(self, x):
+        y1 = self.conv1(x)
+        y2 = self.h(y1)
+        y3 = self.q(y2)
+        
+        return self.o(torch.cat([self.conv2(x), y1, nn.functional.interpolate(y2, scale_factor=2), nn.functional.interpolate(y3, scale_factor=4)], 1))
+
+
+class SWA(nn.Module):
+    def __init__(self, size, dim):
+        super().__init__()
+        self.conv = Conv(dim, 2, 1, bn=False)
+        
+        self.ww = nn.Sequential(
+            Conv(2, 1, (size, 5), p=(0,2), bn=False),
+            Rearrange('b 1 1 s -> b s'),
+            nn.Linear(size, size),
+            nn.Sigmoid()
         )
         
-        self.o = Conv(c2*3, c2, act=nn.ReLU())
-
+        self.hw = nn.Sequential(
+            Conv(2, 1, (5, size), p=(2,0), bn=False),
+            Rearrange('b 1 s 1 -> b s'),
+            nn.Linear(size, size),
+            nn.Sigmoid()
+        )
+    
     def forward(self, x):
         x = self.conv(x)
-        y1 = self.h(x)
-        y2 = self.q(y1)
         
-        return self.o(torch.cat([x, nn.functional.interpolate(y1, scale_factor=2), nn.functional.interpolate(y2, scale_factor=4)], 1))
+        ww = self.ww(x).unsqueeze(1)
+        hw = self.hw(x).unsqueeze(-1)
 
-
-class SeModule(nn.Module):
-    def __init__(self, in_size, reduction=4):
-        super(SeModule, self).__init__()
-        expand_size =  max(in_size // reduction, 8)
-        self.se = nn.Sequential(
-            nn.AdaptiveAvgPool2d(1),
-            Conv(in_size, expand_size, bn=False, act=nn.ReLU()),
-            Conv(expand_size, in_size, bn=False, act=nn.Hardsigmoid())
-        )
-
-    def forward(self, x):
-        return x * self.se(x)
-
-
-class Block(nn.Module):
-    def __init__(self, inp, oup, stride, expand_ratio):
-        super(Block, self).__init__()
-        hidden_dim = round(inp * expand_ratio)
-        self.identity = stride == 1 and inp == oup
-
-        if expand_ratio == 1:
-            self.conv = nn.Sequential(
-                # dw
-                Conv(inp, inp, 3, stride, g=inp, act=nn.ReLU6()),
-                # pw-linear
-                Conv(inp, oup, 1, 1))
-        else:
-            self.conv = nn.Sequential(
-                # pw
-                Conv(inp, hidden_dim, 1, 1, act=nn.ReLU6()),
-                # dw
-                Conv(hidden_dim, hidden_dim, 3, stride, g=hidden_dim, act=nn.ReLU6()),
-                # pw-linear
-                Conv(hidden_dim, oup, 1, 1))
-
-    def forward(self, x):
-        if self.identity:
-            return x + self.conv(x)
-        else:
-            return self.conv(x)
-
-
-class ImplicitA(nn.Module):
-    def __init__(self, channel, mean=0., std=.02):
-        super(ImplicitA, self).__init__()
-        self.channel = channel
-        self.mean = mean
-        self.std = std
-        self.implicit = nn.Parameter(torch.zeros(1, channel, 1, 1))
-        nn.init.normal_(self.implicit, mean=self.mean, std=self.std)
-
-    def forward(self, x):
-        return self.implicit + x
-
-
-class C3(nn.Module):
-    # CSP Bottleneck with 3 convolutions
-    def __init__(self, c1, c2, n=1, shortcut=True, g=1, e=0.5):
-        """Initializes C3 module with options for channel count, bottleneck repetition, shortcut usage, group
-        convolutions, and expansion.
-        """
-        super().__init__()
-        c_ = int(c2 * e)  # hidden channels
-        self.cv1 = Conv(c1, c_, 1, 1, act=nn.ReLU())
-        self.cv2 = Conv(c1, c_, 1, 1, act=nn.ReLU())
-        self.cv3 = Conv(2 * c_, c2, 1, act=nn.ReLU())  # optional act=FReLU(c2)
-        self.m = nn.Sequential(*(Bottleneck(c_, c_, shortcut, g, e=1.0) for _ in range(n)))
-
-    def forward(self, x):
-        """Performs forward propagation using concatenated outputs from two convolutions and a Bottleneck sequence."""
-        return self.cv3(torch.cat((self.m(self.cv1(x)), self.cv2(x)), 1))
-
-
-class Bottleneck(nn.Module):
-    # Standard bottleneck
-    def __init__(self, c1, c2, shortcut=True, g=1, e=0.5):
-        """Initializes a standard bottleneck layer with optional shortcut and group convolution, supporting channel
-        expansion.
-        """
-        super().__init__()
-        c_ = int(c2 * e)  # hidden channels
-        self.cv1 = Conv(c1, c_, 1, 1, act=nn.ReLU())
-        self.cv2 = Conv(c_, c2, 3, 1, g=g, act=nn.ReLU())
-        self.add = shortcut and c1 == c2
-
-    def forward(self, x):
-        """Processes input through two convolutions, optionally adds shortcut if channel dimensions match; input is a
-        tensor.
-        """
-        return x + self.cv2(self.cv1(x)) if self.add else self.cv2(self.cv1(x))
-
-
-class SPPF(nn.Module):
-    # Spatial Pyramid Pooling - Fast (SPPF) layer for YOLOv5 by Glenn Jocher
-    def __init__(self, c1, c2, k=5):
-        """
-        Initializes YOLOv5 SPPF layer with given channels and kernel size for YOLOv5 model, combining convolution and
-        max pooling.
-
-        Equivalent to SPP(k=(5, 9, 13)).
-        """
-        super().__init__()
-        c_ = c1 // 2  # hidden channels
-        self.cv1 = Conv(c1, c_, 1, 1, act=nn.ReLU())
-        self.cv2 = Conv(c_ * 4, c2, 1, 1, act=nn.ReLU())
-        self.m = nn.MaxPool2d(kernel_size=k, stride=1, padding=k // 2)
-
-    def forward(self, x):
-        """Processes input through a series of convolutions and max pooling operations for feature extraction."""
-        x = self.cv1(x)
-
-        y1 = self.m(x)
-        y2 = self.m(y1)
-        return self.cv2(torch.cat((x, y1, y2, self.m(y2)), 1))
-
-
-class ImplicitM(nn.Module):
-    def __init__(self, channel, mean=1., std=.02):
-        super(ImplicitM, self).__init__()
-        self.channel = channel
-        self.mean = mean
-        self.std = std
-        self.implicit = nn.Parameter(torch.ones(1, channel, 1, 1))
-        nn.init.normal_(self.implicit, mean=self.mean, std=self.std)
-
-    def forward(self, x):
-        return self.implicit * x
+        return torch.cat([torch.mm(hw[i],ww[i]).unsqueeze(0) for i in range(x.shape[0])])

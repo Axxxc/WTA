@@ -101,12 +101,8 @@ def train(hyp, opt, device):
     for k, v in model.named_modules():
         if hasattr(v, 'bias') and isinstance(v.bias, nn.Parameter):
             pg2.append(v.bias)  # biases
-        if isinstance(v, (nn.BatchNorm2d, nn.LayerNorm)):
-            pg0.append(v.weight)  # no decay
-        elif hasattr(v, 'weight') and isinstance(v.weight, nn.Parameter):
-            pg1.append(v.weight)  # apply decay
-        if hasattr(v, 'implicit'):
-            pg0.append(v.implicit)
+        if hasattr(v, 'weight') and isinstance(v.weight, nn.Parameter):
+            pg0.append(v.weight) if isinstance(v, (nn.BatchNorm2d, nn.LayerNorm)) else pg1.append(v.weight)
         if hasattr(v, 'pos_embedding'):
             pg0.append(v.pos_embedding)
     

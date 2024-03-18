@@ -134,15 +134,12 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
             except:
                 pass
         
-        if m in [nn.Conv2d, Conv, C3, SPPF, Block, EDFA]:
+        if m in [Conv, C3, BNeck, EDFA]:
             c1, c2 = ch[f], args[0]
             args = [c1, c2, *args[1:]]
-            
             if m is C3:
                 args.insert(2, n)  # number of repeats
                 n = 1
-        elif m is nn.BatchNorm2d:
-            args = [ch[f]]
         elif m is Concat:
             c2 = sum([ch[x] for x in f])
         elif m is WTA:
