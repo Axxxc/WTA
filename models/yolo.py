@@ -134,7 +134,7 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
             except:
                 pass
         
-        if m in [nn.Conv2d, Conv, C3, SPPF, Block]:
+        if m in [nn.Conv2d, Conv, C3, SPPF, Block, EDFA]:
             c1, c2 = ch[f], args[0]
             args = [c1, c2, *args[1:]]
             
@@ -148,9 +148,6 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
         elif m is WTA:
             c2 = ch[f]
             args = [c2, *args[:]]
-        elif m is EDFA:
-            c1, c2 = ch[f], args[0]
-            args = [c1, *args[1:]]
         elif m is Detect:
             args.append([ch[x] for x in f])
             if isinstance(args[1], int):  # number of anchors

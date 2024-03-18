@@ -177,12 +177,11 @@ class WTA(nn.Module):
 
 
 class EDFA(nn.Module):
-    def __init__(self, c, l):
+    def __init__(self, c1, c2, l):
         super(EDFA, self).__init__()
         assert l % 4 == 0, 'the input size of EDFA model should be the multiple of 4'
-        dim = c // 2
         
-        self.conv = Conv(c, dim, act=nn.ReLU())
+        self.conv = Conv(c1, c2, act=nn.ReLU())
         
         self.h = nn.Sequential(
             Rearrange('b c h w -> b w h c'),
@@ -195,20 +194,21 @@ class EDFA(nn.Module):
         
         self.q = nn.Sequential(
             Rearrange('b c h w -> b w h c'),
-            Conv(l, l//4, act=nn.ReLU()),
+            Conv(l//2, l//4, act=nn.ReLU()),
             Rearrange('b w h c -> b h w c'),
-            Conv(l, l//4, act=nn.ReLU()),
+            Conv(l//2, l//4, act=nn.ReLU()),
             Rearrange('b h w c -> b c h w'),
             nn.Upsample(None, 4)
         )
         
-        self.o = Conv(dim*3, dim, act=nn.ReLU())
+        self.o = Conv(c2*3, c2, act=nn.ReLU())
 
     def forward(self, x):
         x = self.conv(x)
-        out = torch.cat([x, self.h(x), self.q(x)], 1)
+        y1 = self.h(x)
+        y2 = self.q(y1)
         
-        return self.o(out)
+        return self.o(torch.cat([x, y1, y2], 1))
 
 
 class SeModule(nn.Module):
