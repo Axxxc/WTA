@@ -189,7 +189,6 @@ class EDFA(nn.Module):
             Rearrange('b w h c -> b h w c'),
             Conv(l, l//2, act=nn.ReLU()),
             Rearrange('b h w c -> b c h w'),
-            nn.Upsample(None, 2)
         )
         
         self.q = nn.Sequential(
@@ -198,7 +197,6 @@ class EDFA(nn.Module):
             Rearrange('b w h c -> b h w c'),
             Conv(l//2, l//4, act=nn.ReLU()),
             Rearrange('b h w c -> b c h w'),
-            nn.Upsample(None, 4)
         )
         
         self.o = Conv(c2*3, c2, act=nn.ReLU())
@@ -208,7 +206,7 @@ class EDFA(nn.Module):
         y1 = self.h(x)
         y2 = self.q(y1)
         
-        return self.o(torch.cat([x, y1, y2], 1))
+        return self.o(torch.cat([x, nn.functional.interpolate(y1, scale_factor=2), nn.functional.interpolate(y2, scale_factor=4)], 1))
 
 
 class SeModule(nn.Module):
