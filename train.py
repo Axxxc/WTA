@@ -55,8 +55,7 @@ def train(hyp, opt, device):
     np.random.seed(1)
     torch.manual_seed(1)
     torch.cuda.manual_seed(1)
-    cudnn.benchmark = True
-    cudnn.deterministic = False
+    cudnn.deterministic = True
 
     with open(opt.data) as f:
         data_dict = yaml.load(f, Loader=yaml.SafeLoader)  # data dict
@@ -288,8 +287,8 @@ def train(hyp, opt, device):
             ckpt = {'epoch': epoch,
                     'best_fitness': best_fitness,
                     'training_results': results_file.read_text(),
-                    'model': deepcopy(model.module if is_parallel(model) else model).half(),
-                    'ema': deepcopy(ema.ema).half(),
+                    'model': deepcopy(model.module if is_parallel(model) else model),
+                    'ema': deepcopy(ema.ema),
                     'updates': ema.updates,
                     'optimizer': optimizer.state_dict()}
 

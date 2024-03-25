@@ -84,7 +84,7 @@ class Bottleneck(nn.Module):
 
 class C3(nn.Module):
     # CSP Bottleneck with 3 convolutions
-    def __init__(self, c1, c2, n=1, shortcut=True, g=1, e=0.5):
+    def __init__(self, c1, c2, shortcut=True, g=1, e=0.5):
         """Initializes C3 module with options for channel count, bottleneck repetition, shortcut usage, group
         convolutions, and expansion.
         """
@@ -93,7 +93,7 @@ class C3(nn.Module):
         self.cv1 = Conv(c1, c_, 1, 1, act=nn.ReLU())
         self.cv2 = Conv(c1, c_, 1, 1, act=nn.ReLU())
         self.cv3 = Conv(2 * c_, c2, 1, act=nn.ReLU())  # optional act=FReLU(c2)
-        self.m = nn.Sequential(*(Bottleneck(c_, c_, shortcut, g, e=1.0) for _ in range(n)))
+        self.m = Bottleneck(c_, c_, shortcut, g, e=1.0)
 
     def forward(self, x):
         """Performs forward propagation using concatenated outputs from two convolutions and a Bottleneck sequence."""
@@ -168,7 +168,7 @@ class WTA(nn.Module):
             nn.LayerNorm(dim),
         )
 
-        self.pos_embedding = nn.Parameter(torch.randn(1, num_patches, dim))
+        # self.pos_embedding = nn.Parameter(torch.randn(1, num_patches, dim))
 
         self.transformer = nn.Sequential(
             Transformer(dim, h, hd, 4*dim),
@@ -187,7 +187,7 @@ class WTA(nn.Module):
         
         ti = self.to_patch_embedding(y)
 
-        ti += self.pos_embedding
+        # ti += self.pos_embedding
 
         ti = self.transformer(ti)
     
@@ -201,39 +201,38 @@ class WTA(nn.Module):
 class EDFA(nn.Module):
     def __init__(self, c1, c2, l):
         super(EDFA, self).__init__()
-        assert l % 4 == 0, 'the input size of EDFA model should be the multiple of 4'
         
-        self.conv1 = Conv(c1, c2, act=nn.ReLU())
-        self.conv2 = Conv(c1, c2, act=nn.ReLU())
+        self.conv1 = Conv(c1, c1 // 2, act=nn.ReLU())
+        self.conv2 = Conv(c1, c1 // 2, act=nn.ReLU())
         
-        self.h = nn.Sequential(
+        self.s1 = nn.Sequential(
             Rearrange('b c h w -> b w h c'),
-            Conv(l, l//2, act=nn.ReLU()),
+            Conv(l, l, act=False),
             Rearrange('b w h c -> b h w c'),
-            Conv(l, l//2, act=nn.ReLU()),
+            Conv(l, l, (1, 3), act=nn.ReLU()),
             Rearrange('b h w c -> b c h w'))
         
-        self.q = nn.Sequential(
-            Rearrange('b c h w -> b w h c'),
-            Conv(l//2, l//4, act=nn.ReLU()),
-            Rearrange('b w h c -> b h w c'),
-            Conv(l//2, l//4, act=nn.ReLU()),
-            Rearrange('b h w c -> b c h w'))
+        self.s2 = nn.Sequential(
+            Rearrange('b c h w -> b h w c'),
+            Conv(l, l, act=False),
+            Rearrange('b h w c -> b w h c'),
+            Conv(l, l, (1, 3), act=nn.ReLU()),
+            Rearrange('b w h c -> b c h w'))
         
-        self.o = Conv(c2*4, c2, act=nn.ReLU())
-
+        self.oc = Conv(c1, c2, act=nn.ReLU())
+    
     def forward(self, x):
-        y1 = self.conv1(x)
-        y2 = self.h(y1)
-        y3 = self.q(y2)
+        y1 = self.s1(self.conv1(x))
+        y2 = self.s2(self.conv2(x))
         
-        return self.o(torch.cat([self.conv2(x), y1, nn.functional.interpolate(y2, scale_factor=2), nn.functional.interpolate(y3, scale_factor=4)], 1))
+        return self.oc(torch.cat([y1, y2], dim=1) + x)
 
 
-class SWA(nn.Module):
+class LSA(nn.Module):
     def __init__(self, size, dim):
-        super().__init__()
-        self.conv = Conv(dim, 2, 1, bn=False)
+        super(LSA, self).__init__()
+        
+        self.conv = Conv(dim, 2, 1, act = nn.ReLU())
         
         self.ww = nn.Sequential(
             Conv(2, 1, (size, 5), p=(0,2), bn=False),
@@ -255,4 +254,4 @@ class SWA(nn.Module):
         ww = self.ww(x).unsqueeze(1)
         hw = self.hw(x).unsqueeze(-1)
 
-        return torch.cat([torch.mm(hw[i],ww[i]).unsqueeze(0) for i in range(x.shape[0])])
+        return torch.cat([torch.mm(hw[i],ww[i]).unsqueeze(0).unsqueeze(0) for i in range(x.shape[0])], dim=0)

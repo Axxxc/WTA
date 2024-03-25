@@ -20,7 +20,8 @@ class Ensemble(nn.ModuleList):
 
 def attempt_load(weight, map_location=None):
     ckpt = torch.load(weight, map_location=map_location)  # load
-    model = ckpt['ema' if ckpt.get('ema') else 'model'].float().eval()  # FP32 model
+    model = ckpt['ema' if ckpt.get('ema') else 'model'].eval()  # FP32 model
+    model.info()
     
     # Compatibility updates
     for m in model.modules():
