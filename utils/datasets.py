@@ -47,7 +47,7 @@ def exif_size(img):
     return s
 
 
-def create_dataloader(path, imgsz, batch_size, stride, hyp=None, augment=False, cache=False, workers=8, prefix=''):
+def create_dataloader(path, imgsz, batch_size, stride, hyp=None, augment=False, cache=False, prefix=''):
     # Make sure only the first process in DDP process the dataset first, and the following others can use the cache
     dataset = LoadImagesAndLabels(path, imgsz, batch_size,
                                   augment=augment,  # augment images
@@ -57,7 +57,7 @@ def create_dataloader(path, imgsz, batch_size, stride, hyp=None, augment=False, 
                                   prefix=prefix)
 
     batch_size = min(batch_size, len(dataset))
-    nw = min([os.cpu_count(), batch_size if batch_size > 1 else 0, workers])  # number of workers
+    nw = min([os.cpu_count(), batch_size if batch_size > 1 else 0])  # number of workers
     dataloader = InfiniteDataLoader(dataset,
                         batch_size=batch_size,
                         num_workers=nw,

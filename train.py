@@ -153,15 +153,13 @@ def train(hyp, opt, device):
     imgsz, imgsz_test = [check_img_size(x, gs) for x in opt.img_size]  # verify imgsz are gs-multiples
 
     # Trainloader
-    dataloader, dataset = create_dataloader(train_path, imgsz, batch_size, gs, hyp=hyp, augment=True, cache=opt.cache_images,
-                                            workers=opt.workers, prefix=colorstr('train: '))
+    dataloader, dataset = create_dataloader(train_path, imgsz, batch_size, gs, hyp=hyp, augment=True, cache=opt.cache_images, prefix=colorstr('train: '))
     mlc = np.concatenate(dataset.labels, 0)[:, 0].max()  # max label class
     nb = len(dataloader)  # number of batches
     assert mlc < nc, 'Label class %g exceeds nc=%g in %s. Possible class labels are 0-%g' % (mlc, nc, opt.data, nc - 1)
 
     # Process 0
-    testloader = create_dataloader(test_path, imgsz_test, batch_size * 2, gs, hyp=hyp, cache=opt.cache_images and not opt.notest,
-                                   workers=opt.workers, prefix=colorstr('val: '))[0]
+    testloader = create_dataloader(test_path, imgsz_test, batch_size * 2, gs, hyp=hyp, cache=opt.cache_images and not opt.notest, prefix=colorstr('val: '))[0]
 
     if not opt.resume:
         # Anchors
@@ -337,7 +335,6 @@ if __name__ == '__main__':
     parser.add_argument('--noautoanchor', action='store_true', help='disable autoanchor check')
     parser.add_argument('--cache-images', action='store_true', help='cache images for faster training')
     parser.add_argument('--device', default='', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
-    parser.add_argument('--workers', type=int, default=8, help='maximum number of dataloader workers')
     parser.add_argument('--project', default='runs/train', help='save to project/name')
     parser.add_argument('--name', default='exp', help='save to project/name')
     parser.add_argument('--exist-ok', action='store_true', help='existing project/name ok, do not increment')

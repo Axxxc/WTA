@@ -155,47 +155,39 @@ class WTA(nn.Module):
         super(WTA, self).__init__()
         
         assert image_size % patch_size == 0, 'Image dimensions must be divisible by the patch size.'
-
+        
         self.c = c
-        dim = 4 * self.c
+        dim = patch_size * patch_size
         num_patches = (image_size // patch_size) ** 2
-        patch_dim = dim * patch_size * patch_size
-
+        patch_dim = 4 * self.c * patch_size * patch_size
+        
         self.to_patch_embedding = nn.Sequential(
             Rearrange('b c (h p1) (w p2) -> b (h w) (p1 p2 c)', p1 = patch_size, p2 = patch_size),
             nn.LayerNorm(patch_dim),
             nn.Linear(patch_dim, dim),
-            nn.LayerNorm(dim),
-        )
-
-        # self.pos_embedding = nn.Parameter(torch.randn(1, num_patches, dim))
-
-        self.transformer = nn.Sequential(
-            Transformer(dim, h, hd, 4*dim),
-            Transformer(dim, 1, dim, 4*dim),
-        )
+            nn.LayerNorm(dim))
         
+        self.pos_embedding = nn.Parameter(torch.randn(1, num_patches, dim))
+        
+        self.transformer = nn.Sequential(
+            Transformer(dim, h, hd, dim*4),
+            Transformer(dim, h, hd, dim*4))
+
         self.attention = nn.Sequential(
-            nn.Linear(dim, dim),
-            nn.Sigmoid()
-        )
+            nn.Linear(dim, 4*self.c),
+            nn.Sigmoid())
     
     def forward(self, x):
         dtype = x.dtype
+        
         a, (b, c, d) = ptwt.wavedec2(x.float(), 'haar', 'zero', 1)
-        y = torch.cat((a, b, c, d), 1).to(dtype)
+        z = torch.cat((a, b, c, d), 1).to(dtype)
         
-        ti = self.to_patch_embedding(y)
-
-        # ti += self.pos_embedding
-
-        ti = self.transformer(ti)
-    
-        w = self.attention(ti.mean(dim = 1))
-        y *= w.view(y.shape[0], y.shape[1], 1, 1)
-        y = y.float()
+        ti = self.transformer(self.to_patch_embedding(z) + self.pos_embedding)
+        w = self.attention(ti.mean(dim = 1)).view(z.shape[0], z.shape[1], 1, 1).contiguous()
         
-        return ptwt.waverec2([y[:,:self.c], (y[:,self.c:self.c*2], y[:,self.c*2:self.c*3], y[:,self.c*3:])], 'haar').to(dtype)
+        out = (z * w).float()
+        return ptwt.waverec2([out[:,:self.c], (out[:,self.c:self.c*2], out[:,self.c*2:self.c*3], out[:,self.c*3:])], 'haar').to(dtype)
 
 
 class EDFA(nn.Module):
