@@ -175,6 +175,10 @@ class Model(nn.Module):
                 b.data[:, 5:] += math.log(0.6 / (m.nc - 0.99)) if cf is None else torch.log(cf / cf.sum())  # cls
                 mi.conv.bias = torch.nn.Parameter(b.view(-1), requires_grad=True)
 
+        # m = self.model[0]
+        # if isinstance(m, WTA):
+        #     m.weighted[0].weight.data[:] = 0
+
     def info(self, verbose=False, img_size=[640, 640]):  # print model information
         model_info(self, verbose, img_size)
 

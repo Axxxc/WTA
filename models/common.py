@@ -157,12 +157,12 @@ class WTA(nn.Module):
         assert image_size % patch_size == 0, 'Image dimensions must be divisible by the patch size.'
         
         self.c = c
-        dim = patch_size * patch_size
+        dim = 4 * self.c
         num_patches = (image_size // patch_size) ** 2
         patch_dim = 4 * self.c * patch_size * patch_size
         
         self.to_patch_embedding = nn.Sequential(
-            Rearrange('b c (h p1) (w p2) -> b (h w) (p1 p2 c)', p1 = patch_size, p2 = patch_size),
+            Rearrange('b c (h p1) (w p2) -> b (h w) (p1 p2 c)', p1=patch_size, p2=patch_size),
             nn.LayerNorm(patch_dim),
             nn.Linear(patch_dim, dim),
             nn.LayerNorm(dim))
@@ -170,11 +170,13 @@ class WTA(nn.Module):
         self.pos_embedding = nn.Parameter(torch.randn(1, num_patches, dim))
         
         self.transformer = nn.Sequential(
-            Transformer(dim, h, hd, dim*4),
-            Transformer(dim, h, hd, dim*4))
+            Transformer(dim, h, hd, dim*8),
+            Transformer(dim, h, hd, dim*8))
 
-        self.attention = nn.Sequential(
-            nn.Linear(dim, 4*self.c),
+        self.weighted = nn.Sequential(
+            Rearrange('b (h w) c -> b c h w', h=(image_size//patch_size)),
+            Conv(dim, dim, 3, 1, g=dim, act=nn.ReLU(), bn=False),
+            nn.AvgPool2d(image_size//patch_size),
             nn.Sigmoid())
     
     def forward(self, x):
@@ -184,7 +186,7 @@ class WTA(nn.Module):
         z = torch.cat((a, b, c, d), 1).to(dtype)
         
         ti = self.transformer(self.to_patch_embedding(z) + self.pos_embedding)
-        w = self.attention(ti.mean(dim = 1)).view(z.shape[0], z.shape[1], 1, 1).contiguous()
+        w = self.weighted(ti) * 2
         
         out = (z * w).float()
         return ptwt.waverec2([out[:,:self.c], (out[:,self.c:self.c*2], out[:,self.c*2:self.c*3], out[:,self.c*3:])], 'haar').to(dtype)

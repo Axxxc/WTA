@@ -186,7 +186,7 @@ def test(data,
 
     # Plots
     if plots:
-        confusion_matrix.plot(save_dir=save_dir, names=list(names.values()))
+        confusion_matrix.plot(save_dir=save_dir, names=[f'C{i+1}' for i in range(nc)])
 
     # Return results
     model.float()  # for training
