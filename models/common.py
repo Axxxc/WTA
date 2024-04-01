@@ -100,8 +100,24 @@ class C3(nn.Module):
         return self.cv3(torch.cat((self.m(self.cv1(x)), self.cv2(x)), 1))
 
 
+class FeedForward(nn.Module):
+    def __init__(self, dim, hidden_dim, dropout = 0.):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.LayerNorm(dim),
+            nn.Linear(dim, hidden_dim),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim, dim),
+            nn.Dropout(dropout)
+        )
+
+    def forward(self, x):
+        return self.net(x)
+
+
 class Attention(nn.Module):
-    def __init__(self, dim, heads, dim_head):
+    def __init__(self, dim, heads = 8, dim_head = 64, dropout = 0.):
         super().__init__()
         inner_dim = dim_head *  heads
         project_out = not (heads == 1 and dim_head == dim)
@@ -112,10 +128,14 @@ class Attention(nn.Module):
         self.norm = nn.LayerNorm(dim)
 
         self.attend = nn.Softmax(dim = -1)
+        self.dropout = nn.Dropout(dropout)
 
         self.to_qkv = nn.Linear(dim, inner_dim * 3, bias = False)
 
-        self.to_out = nn.Linear(inner_dim, dim) if project_out else nn.Identity()
+        self.to_out = nn.Sequential(
+            nn.Linear(inner_dim, dim),
+            nn.Dropout(dropout)
+        ) if project_out else nn.Identity()
 
     def forward(self, x):
         x = self.norm(x)
@@ -126,6 +146,7 @@ class Attention(nn.Module):
         dots = torch.matmul(q, k.transpose(-1, -2)) * self.scale
 
         attn = self.attend(dots)
+        attn = self.dropout(attn)
 
         out = torch.matmul(attn, v)
         out = rearrange(out, 'b h n d -> b n (h d)')
@@ -133,19 +154,20 @@ class Attention(nn.Module):
 
 
 class Transformer(nn.Module):
-    def __init__(self, dim, heads, dim_head, mlp_dim):
+    def __init__(self, dim, depth, heads, dim_head, mlp_dim, dropout = 0.):
         super().__init__()
         self.norm = nn.LayerNorm(dim)
-        self.attn = Attention(dim, heads, dim_head)
-        self.net = nn.Sequential(
-            nn.LayerNorm(dim),
-            nn.Linear(dim, mlp_dim),
-            nn.GELU(),
-            nn.Linear(mlp_dim, dim))
+        self.layers = nn.ModuleList([])
+        for _ in range(depth):
+            self.layers.append(nn.ModuleList([
+                Attention(dim, heads = heads, dim_head = dim_head, dropout = dropout),
+                FeedForward(dim, mlp_dim, dropout = dropout)
+            ]))
 
     def forward(self, x):
-        x = self.attn(x) + x
-        x = self.net(x) + x
+        for attn, ff in self.layers:
+            x = attn(x) + x
+            x = ff(x) + x
 
         return self.norm(x)
 
@@ -167,11 +189,9 @@ class WTA(nn.Module):
             nn.Linear(patch_dim, dim),
             nn.LayerNorm(dim))
         
-        self.pos_embedding = nn.Parameter(torch.randn(1, num_patches, dim))
+        # self.pos_embedding = nn.Parameter(torch.randn(1, num_patches, dim))
         
-        self.transformer = nn.Sequential(
-            Transformer(dim, h, hd, dim*8),
-            Transformer(dim, h, hd, dim*8))
+        self.transformer = Transformer(dim, 2, h, hd, dim*8)
 
         self.weighted = nn.Sequential(
             Rearrange('b (h w) c -> b c h w', h=(image_size//patch_size)),
@@ -185,7 +205,7 @@ class WTA(nn.Module):
         a, (b, c, d) = ptwt.wavedec2(x.float(), 'haar', 'zero', 1)
         z = torch.cat((a, b, c, d), 1).to(dtype)
         
-        ti = self.transformer(self.to_patch_embedding(z) + self.pos_embedding)
+        ti = self.transformer(self.to_patch_embedding(z))
         w = self.weighted(ti) * 2
         
         out = (z * w).float()
