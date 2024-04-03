@@ -6,7 +6,7 @@ import cv2
 import torch
 from numpy import random
 
-from models.experimental import attempt_load
+from models.yolo import attempt_load
 from utils.datasets import LoadImages
 from utils.general import check_img_size, non_max_suppression, scale_coords, xyxy2xywh, set_logging, increment_path
 from utils.plots import plot_one_box
@@ -120,7 +120,7 @@ def detect(save_img=False):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--weight', nargs='+', type=str, default='', help='model.pt path')
+    parser.add_argument('--weight', type=str, default='', help='model.pt path')
     parser.add_argument('--source', type=str, default='', help='source')  # file/folder
     parser.add_argument('--img-size', type=int, default=640, help='inference size (pixels)')
     parser.add_argument('--conf-thres', type=float, default=0.25, help='object confidence threshold')

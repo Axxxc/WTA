@@ -7,7 +7,7 @@ import torch
 import yaml
 from tqdm import tqdm
 
-from models.experimental import attempt_load
+from models.yolo import attempt_load
 from utils.datasets import create_dataloader
 from utils.general import check_dataset, check_file, check_img_size, box_iou, non_max_suppression, scale_coords, xyxy2xywh, \
     xywh2xyxy, set_logging, increment_path, colorstr

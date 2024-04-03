@@ -9,8 +9,6 @@ logger = logging.getLogger(__name__)
 import torch
 from torch import nn
 from models.common import *
-from models.experimental import *
-from utils.autoanchor import check_anchor_order
 from utils.torch_utils import model_info, initialize_weights
 
 
@@ -222,3 +220,20 @@ def parse_model(d, size, ch):  # model_dict, input_channels(3)
             ch = []
         ch.append(c2)
     return nn.Sequential(*layers), sorted(save)
+
+
+def attempt_load(weight, map_location=None):
+    ckpt = torch.load(weight, map_location=map_location)  # load
+    model = ckpt['ema' if ckpt.get('ema') else 'model'].eval()  # FP32 model
+    model.info()
+    
+    # Compatibility updates
+    for m in model.modules():
+        if type(m) in [nn.Hardswish, nn.LeakyReLU, nn.ReLU, nn.ReLU6, nn.SiLU]:
+            m.inplace = True  # pytorch 1.7.0 compatibility
+        elif type(m) is nn.Upsample:
+            m.recompute_scale_factor = None  # torch 1.11.0 compatibility
+        elif type(m) is Conv:
+            m._non_persistent_buffers_set = set()  # pytorch 1.6.0 compatibility
+    
+    return model  # return ensemble
