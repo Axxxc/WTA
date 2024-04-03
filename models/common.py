@@ -234,12 +234,14 @@ class EDFA(nn.Module):
             Rearrange('b w h c -> b c h w'))
         
         self.oc = Conv(c1, c2, act=nn.ReLU())
+
+        self.res = Conv(c1, c2, act=nn.ReLU()) if c1 != c2 else nn.Identity()
     
     def forward(self, x):
         y1 = self.s1(self.conv1(x))
         y2 = self.s2(self.conv2(x))
         
-        return self.oc(torch.cat([y1, y2], dim=1) + x)
+        return self.oc(torch.cat([y1, y2], dim=1)) + self.res(x)
 
 
 class LSA(nn.Module):
@@ -250,22 +252,23 @@ class LSA(nn.Module):
         
         self.ww = nn.Sequential(
             Conv(2, 1, (size, 5), p=(0,2), bn=False),
-            Rearrange('b 1 1 s -> b s'),
-            nn.Linear(size, size),
+            Rearrange('b 1 1 s -> b s 1'),
+            nn.Conv1d(size, size, 1, 1),
             nn.Sigmoid()
         )
         
         self.hw = nn.Sequential(
             Conv(2, 1, (5, size), p=(2,0), bn=False),
-            Rearrange('b 1 s 1 -> b s'),
-            nn.Linear(size, size),
+            Rearrange('b 1 s 1 -> b s 1'),
+            nn.Conv1d(size, size, 1, 1),
             nn.Sigmoid()
         )
     
     def forward(self, x):
         x = self.conv(x)
+        bs = x.shape[0]
         
-        ww = self.ww(x).unsqueeze(1)
-        hw = self.hw(x).unsqueeze(-1)
-
-        return torch.cat([torch.mm(hw[i],ww[i]).unsqueeze(0).unsqueeze(0) for i in range(x.shape[0])], dim=0)
+        ww = self.ww(x)
+        hw = self.hw(x)
+        
+        return torch.cat([torch.mm(hw[i],ww[i].t()).unsqueeze(0).unsqueeze(0) for i in range(bs)], dim=0)
